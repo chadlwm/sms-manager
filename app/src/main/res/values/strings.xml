@@ -1,0 +1,1 @@
+<resources><string name="app_name">短信清理</string><style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar"><item name="android:fontFamily">sans</item><item name="android:colorAccent">#245EAD</item><item name="android:windowLightStatusBar">true</item></style></resources>
