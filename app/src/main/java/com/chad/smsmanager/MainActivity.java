@@ -31,7 +31,7 @@ public class MainActivity extends Activity {
     }
     @Override public void onCreate(Bundle b) {
         super.onCreate(b);
-        LinearLayout root=new LinearLayout(this); root.setOrientation(1); root.setPadding(24,16,24,16);
+        LinearLayout root=new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setPadding(24,16,24,16);
         root.setOnApplyWindowInsetsListener((v,insets)->{ android.graphics.Insets i=insets.getInsets(WindowInsets.Type.systemBars()); v.setPadding(24,i.top+16,24,i.bottom+16); return insets; });
         TextView title=new TextView(this); title.setText("短信清理"); title.setTextSize(26); root.addView(title);
         TextView hint=new TextView(this); hint.setText("本机离线处理 · 不上传短信\n仅普通 SMS，不含彩信、RCS 或联系人姓名搜索"); root.addView(hint);
@@ -50,7 +50,7 @@ public class MainActivity extends Activity {
             public View getView(int i,View old,ViewGroup parent){
                 Sms s=rows.get(i); LinearLayout box=new LinearLayout(MainActivity.this); box.setPadding(0,12,0,12);
                 CheckBox check=new CheckBox(MainActivity.this); check.setChecked(selected.contains(s.id)); check.setEnabled(!busy); box.addView(check);
-                LinearLayout texts=new LinearLayout(MainActivity.this); texts.setOrientation(1); box.addView(texts,new LinearLayout.LayoutParams(0,-2,1));
+                LinearLayout texts=new LinearLayout(MainActivity.this); texts.setOrientation(LinearLayout.VERTICAL); box.addView(texts,new LinearLayout.LayoutParams(0,-2,1));
                 TextView head=new TextView(MainActivity.this); head.setText((s.address==null?"未知发件人":s.address)+"  "+DateFormat.getDateTimeInstance(DateFormat.SHORT,DateFormat.SHORT).format(new Date(s.date))); head.setTextSize(15); texts.addView(head);
                 TextView body=new TextView(MainActivity.this); body.setText(s.body); body.setMaxLines(4); texts.addView(body);
                 check.setOnCheckedChangeListener((button,on)->{if(on)selected.add(s.id);else selected.remove(s.id); status.setText(rows.size()+" 条结果 · 已选 "+selected.size()+" 条");});
