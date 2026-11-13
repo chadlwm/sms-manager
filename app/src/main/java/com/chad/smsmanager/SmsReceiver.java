@@ -28,7 +28,7 @@ public class SmsReceiver extends BroadcastReceiver {
         try {
         NotificationManager nm=c.getSystemService(NotificationManager.class);nm.createNotificationChannel(new NotificationChannel("sms","短信与清理提醒",NotificationManager.IMPORTANCE_HIGH));
         PendingIntent pi=PendingIntent.getActivity(c,0,new Intent(c,MainActivity.class),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
-        Notification n=new Notification.Builder(c,"sms").setSmallIcon(android.R.drawable.ic_dialog_email).setContentTitle(title).setContentText(body).setContentIntent(pi).setAutoCancel(true).setVisibility(Notification.VISIBILITY_PRIVATE).build();
+        Notification n=new Notification.Builder(c,"sms").setSmallIcon(R.drawable.ic_notification_sms).setContentTitle(title).setContentText(body).setContentIntent(pi).setAutoCancel(true).setVisibility(Notification.VISIBILITY_PRIVATE).build();
         nm.notify(id,n);
         } catch(RuntimeException ignored) { /* Notification availability must not change the SMS save result. */ }
     }

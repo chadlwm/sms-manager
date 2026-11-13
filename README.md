@@ -89,3 +89,16 @@ gradle lintDebug assembleDebug assembleRelease
 ### 验证范围
 
 纯 Java 协议测试覆盖正常删除、返回 0 且仍存在、同 ID 兼容重试、删除前/后查询异常、权限变化、未执行时已不存在等 13 个场景（67 个断言），并保留 6 个过滤测试、11 个日志摘要断言。Android 35 SDK 编译检查与 GitHub CI 不替代真机权限、视觉及接收测试。
+
+
+## v0.2.1：默认角色核验与自定义图标
+
+- 补齐 Android 11+ 查询默认短信应用所需的 `SMS_DELIVER` package visibility 声明，不申请 `QUERY_ALL_PACKAGES`。
+- 使用 `RoleManager.isRoleHeld(ROLE_SMS)` 核对自身角色，结合可读取的默认包名；角色和包名矛盾时不执行删除。只有包名不可读但 RoleManager 明确持有时，使用系统角色结果，而非把空包名误判为未授权。
+- 记录系统申请返回的 `RESULT_OK` / `RESULT_CANCELED`，返回前台后进行最多约 3 秒的有限只读复查；系统回调成功本身不会触发或授权删除。核验成功后仍需用户再次确认删除。
+- 未核实或矛盾时显示可复制诊断（Android 版本、角色状态、默认包名、回调结果，不含短信内容），提供系统默认应用设置入口。不给 root/ADB 强行改角色，也不绕过 ColorOS 安全限制。
+- 自定义短信主题图标：蓝底白色短信气泡、青绿色整理完成标记；支持自适应图标、Android 13 单色主题图标与独立通知图标。
+
+缺少 visibility 声明及立即依赖单一查询结果是确认的代码问题，但**不能据此确定 OPPO 用户本机角色申请失败的唯一原因**。仍需更新后核对实际系统诊断。此前收信/MMS 限制不变。
+
+官方依据：[Telephony.Sms.getDefaultSmsPackage](https://developer.android.com/reference/android/provider/Telephony.Sms#getDefaultSmsPackage(android.content.Context))、[RoleManager](https://developer.android.com/reference/android/app/role/RoleManager)。

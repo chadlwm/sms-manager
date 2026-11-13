@@ -33,7 +33,8 @@ public class MainActivity extends Activity {
     EditText keyword,sender; CheckBox exact;
     TextView status,recovery,operation,empty,selectedLabel;
     Button delete,selectAll,backup,cancel,access; ProgressBar progress; BaseAdapter adapter;
-    boolean busy,observedRunning,permissionRequested,refreshPending; int generation;
+    boolean busy,observedRunning,permissionRequested,refreshPending,resumed; int roleAttempts;
+    final Runnable roleCheck=()->checkRoleResult(); int generation;
     ArrayList<Sms> exportSnapshot;
     final Runnable monitor=new Runnable(){public void run(){
         boolean running=CleanupTask.isRunning(); refreshSafety();
@@ -99,18 +100,20 @@ public class MainActivity extends Activity {
     boolean isDefault(){return SafetyState.isDefault(this);}
     void hideKeyboard(){((InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(keyword.getWindowToken(),0);keyword.clearFocus();sender.clearFocus();}
     void showSms(Sms s){new AlertDialog.Builder(this).setTitle(s.address==null?"短信详情":s.address).setMessage(s.body).setPositiveButton("关闭",null).setNeutralButton("查此发件人",(d,w)->{if(locked())return;sender.setText(s.address);keyword.setText("");exact.setChecked(true);load(true);}).show();}
-    void showSafety(){String event=SafetyState.prefs(this).getString("last_event","");new AlertDialog.Builder(this).setTitle("安全与默认短信应用").setMessage(SafetyState.guidance(this)+"\n\n建议先备份，开启飞行模式后临时授权清理。清理完立即恢复原短信应用，再关闭飞行模式。飞行模式也不能保证收信不受影响。\n\n本工具不支持 MMS、RCS、发送和快捷回复。"+(event.isEmpty()?"":"\n\n接收异常："+event)).setPositiveButton("打开默认应用设置",(d,w)->openSettings(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)).setNeutralButton("本应用权限",(d,w)->startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:"+getPackageName())))).setNegativeButton("关闭",null).show();}
+    void showSafety(){String event=SafetyState.prefs(this).getString("last_event","");new AlertDialog.Builder(this).setTitle("安全与默认短信应用").setMessage(SafetyState.guidance(this)+"\n\n状态诊断：\n"+SafetyState.diagnostics(this)+"\n\n建议先备份，开启飞行模式后临时授权清理。清理完立即恢复原短信应用，再关闭飞行模式。飞行模式也不能保证收信不受影响。\n\n本工具不支持 MMS、RCS、发送和快捷回复。"+(event.isEmpty()?"":"\n\n接收异常："+event)).setPositiveButton("打开默认应用设置",(d,w)->openSettings(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)).setNeutralButton("本应用权限",(d,w)->startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:"+getPackageName())))).setNegativeButton("关闭",null).show();}
     void openSettings(String action){try{startActivity(new Intent(action));}catch(ActivityNotFoundException e){error("未找到对应设置页面，请手动进入系统设置 → 应用 → 默认应用/权限。");}}
-    @Override public void onResume(){super.onResume();if(keyword!=null){SafetyState.refreshNotification(this);refreshSafety();load(false);ui.removeCallbacks(monitor);ui.post(monitor);}}
-    @Override public void onPause(){super.onPause();ui.removeCallbacks(monitor);}
+    @Override public void onResume(){super.onResume();resumed=true;if(keyword!=null){SafetyState.refreshNotification(this);refreshSafety();load(false);ui.removeCallbacks(monitor);ui.post(monitor);
+        if(SafetyState.prefs(this).getBoolean("role_request_pending",false)){roleAttempts=0;ui.removeCallbacks(roleCheck);ui.post(roleCheck);}
+    }}
+    @Override public void onPause(){super.onPause();resumed=false;ui.removeCallbacks(monitor);ui.removeCallbacks(roleCheck);}
     @Override public void onSaveInstanceState(Bundle b){super.onSaveInstanceState(b);b.putString("keyword",keyword.getText().toString());b.putString("sender",sender.getText().toString());b.putBoolean("exact",exact.isChecked());b.putBoolean("permissionRequested",permissionRequested);long[] ids=new long[selected.size()];int i=0;for(long id:selected)ids[i++]=id;b.putLongArray("selected",ids);}
     void refreshSafety(){
-        boolean running=CleanupTask.isRunning();recovery.setText(isDefault()?"⚠ 当前仍为默认短信应用 · 清理后请恢复  ›":"本机离线处理 · 删除需临时授权 · 安全说明  ›");recovery.setTextColor(isDefault()?0xFF8B4D0E:MUTED);recovery.setBackground(shape(isDefault()?0xFFFFEBCD:0xFFE7EEF9,12));
+        boolean running=CleanupTask.isRunning();recovery.setText(SafetyState.prefs(this).getBoolean("role_request_pending",false)?"正在核对系统短信角色 · 尚未执行删除…":isDefault()?"⚠ 当前仍为默认短信应用 · 清理后请恢复  ›":SafetyState.roleStatus(this)==DefaultSmsPolicy.Status.INCONSISTENT?"⚠ 系统角色状态不一致 · 点击核对，暂不删除  ›":"本机离线处理 · 删除需临时授权 · 安全说明  ›");recovery.setTextColor(isDefault()?0xFF8B4D0E:MUTED);recovery.setBackground(shape(isDefault()?0xFFFFEBCD:0xFFE7EEF9,12));
         String result=CleanupTask.summary(this);operation.setText(result.isEmpty()?"":result+"  点击查看详情 ›");String outcome=SafetyState.prefs(this).getString("delete_outcome","");boolean failed=outcome.equals("failed")||outcome.equals("partial");operation.setBackground(shape(failed?0xFFFFE8E9:0xFFE7F0FE,12));operation.setTextColor(failed?RED:INK);operation.setVisibility(result.isEmpty()?View.GONE:View.VISIBLE);cancel.setVisibility(running?View.VISIBLE:View.GONE);progress.setVisibility(locked()?View.VISIBLE:View.GONE);updateSelection();
     }
     void showResult(){String result=CleanupTask.summary(this);if(result.isEmpty())return;new AlertDialog.Builder(this).setTitle(CleanupTask.isRunning()?"清理进行中":"清理结果").setMessage(result+"\n\n若未成功，请检查 ColorOS 中本应用短信权限及默认短信应用设置。不能确认厂商拦截原因，不会自动扩大删除范围。\n清理后请恢复原短信应用。").setPositiveButton("知道了",null).setNeutralButton("权限与恢复",(d,w)->showSafety()).show();}
     void showCompletion(){android.content.SharedPreferences p=SafetyState.prefs(this);long id=p.getLong("delete_operation_id",0);if(id==0||CleanupTask.isRunning()||id==p.getLong("delete_seen_id",0))return;p.edit().putLong("delete_seen_id",id).apply();showResult();}
-    void updateSelection(){boolean lock=locked();selectedLabel.setText(CleanupTask.isRunning()?CleanupTask.progress(this):selected.isEmpty()?"轻点短信卡片选择 · 长按查看全文":"已选 "+selected.size()+" 条短信");delete.setText("删除所选"+(selected.isEmpty()?"":"（"+selected.size()+"）"));delete.setEnabled(!lock&&!selected.isEmpty());delete.setAlpha(delete.isEnabled()?1f:.45f);backup.setEnabled(!lock&&!selected.isEmpty());backup.setAlpha(backup.isEnabled()?1f:.45f);selectAll.setEnabled(!lock&&!rows.isEmpty());selectAll.setText(!rows.isEmpty()&&selected.size()==rows.size()?"取消全选":"全选");}
+    void updateSelection(){boolean lock=locked()||SafetyState.prefs(this).getBoolean("role_request_pending",false);selectedLabel.setText(CleanupTask.isRunning()?CleanupTask.progress(this):selected.isEmpty()?"轻点短信卡片选择 · 长按查看全文":"已选 "+selected.size()+" 条短信");delete.setText("删除所选"+(selected.isEmpty()?"":"（"+selected.size()+"）"));delete.setEnabled(!lock&&!selected.isEmpty());delete.setAlpha(delete.isEnabled()?1f:.45f);backup.setEnabled(!lock&&!selected.isEmpty());backup.setAlpha(backup.isEnabled()?1f:.45f);selectAll.setEnabled(!lock&&!rows.isEmpty());selectAll.setText(!rows.isEmpty()&&selected.size()==rows.size()?"取消全选":"全选");}
     void update(){status.setText(busy?"正在读取短信…":rows.size()+" 条匹配结果");adapter.notifyDataSetChanged();refreshSafety();}
     void error(String value){if(!isFinishing()&&!isDestroyed())new AlertDialog.Builder(this).setTitle("操作提示").setMessage(value).setPositiveButton("知道了",null).show();}
     void requestRead(){if(checkSelfPermission(Manifest.permission.READ_SMS)==PackageManager.PERMISSION_GRANTED){load(false);return;}if(permissionRequested&&!shouldShowRequestPermissionRationale(Manifest.permission.READ_SMS)){new AlertDialog.Builder(this).setTitle("开启短信读取权限").setMessage("请到本应用权限页面允许读取短信，然后返回重试。部分 ColorOS 版本对侧载应用另有限制。").setPositiveButton("打开权限设置",(d,w)->startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:"+getPackageName())))).setNegativeButton("取消",null).show();return;}permissionRequested=true;requestPermissions(Build.VERSION.SDK_INT>=33?new String[]{Manifest.permission.READ_SMS,Manifest.permission.POST_NOTIFICATIONS}:new String[]{Manifest.permission.READ_SMS},10);}
@@ -126,21 +129,51 @@ public class MainActivity extends Activity {
     }
     @Override public void onRequestPermissionsResult(int r,String[] p,int[] g){super.onRequestPermissionsResult(r,p,g);if(r==10){load(false);if(g.length==0||g[0]!=PackageManager.PERMISSION_GRANTED)error("未获得读取权限，因此尚未读取或删除短信。可点击“允许读取短信”重试。");}}
     void confirmDelete(){
+        if(SafetyState.prefs(this).getBoolean("role_request_pending",false)){error("正在核对系统角色，尚未执行删除，请稍候。");return;}
         if(locked()||selected.isEmpty())return;hideKeyboard();
         if(!isDefault()){new AlertDialog.Builder(this).setTitle("第 1 步 · 临时授权").setMessage("Android 只允许默认短信应用删除系统短信。此工具不是完整短信客户端，不支持 MMS、RCS、发送和快捷回复。默认期间收信可能中断，彩信不会下载或补收。\n\n请先备份，开启飞行模式，清理后恢复原短信应用。授权只完成准备，不会自动删除；选择将保留。退出应用不会恢复默认角色。").setNegativeButton("取消",null).setPositiveButton("申请默认角色",(d,w)->{
-            if(!airplane()){showAirplane();return;}SafetyState.rememberOriginal(this);RoleManager rm=getSystemService(RoleManager.class);if(rm!=null&&rm.isRoleAvailable(RoleManager.ROLE_SMS)){try{startActivityForResult(rm.createRequestRoleIntent(RoleManager.ROLE_SMS),20);}catch(Exception e){error("无法打开默认角色申请，请到系统默认应用设置检查。");}}else error("系统未提供短信角色，请检查默认应用设置。");}).show();return;}
+            requestSmsRole();}).show();return;}
         if(!airplane()){showAirplane();return;}
         final ArrayList<Long> ids=new ArrayList<>(selected);new AlertDialog.Builder(this).setTitle("永久删除 "+ids.size()+" 条短信？").setMessage("仅处理当前选中的短信，不删除整个会话。系统删除无法撤销。建议先备份；删除后会逐条核对结果，并明确显示失败或未确认数量。").setNegativeButton("取消",null).setNeutralButton("先备份",(d,w)->export()).setPositiveButton("确认删除",(d,w)->{
             if(!isDefault()||!airplane()){error("权限或飞行模式已改变，尚未开始删除。请重新检查。");return;}
             if(!CleanupTask.start(this,ids)){error("无法启动删除：已有任务进行中，或本地操作日志保存失败。尚未启动新的删除。");return;}observedRunning=true;update();}).show();
     }
+    void requestSmsRole(){
+        if(!airplane()){showAirplane();return;}
+        if(isDefault()){error("已核验当前持有默认短信角色，尚未删除。请再次核对所选短信后确认删除。");return;}
+        SafetyState.rememberOriginal(this);
+        RoleManager rm=getSystemService(RoleManager.class);
+        try {
+            if(rm==null||!rm.isRoleAvailable(RoleManager.ROLE_SMS)){showRoleUnavailable("系统未提供可用的短信角色申请入口。");return;}
+            SafetyState.prefs(this).edit().putBoolean("role_request_pending",true).putString("role_callback","等待系统回调").apply();
+            startActivityForResult(rm.createRequestRoleIntent(RoleManager.ROLE_SMS),20);
+        } catch(RuntimeException e){SafetyState.prefs(this).edit().putBoolean("role_request_pending",false).apply();showRoleUnavailable("无法打开系统申请页面（"+e.getClass().getSimpleName()+"）。");}
+    }
+    void checkRoleResult(){
+        if(!resumed||isFinishing()||isDestroyed()||!SafetyState.prefs(this).getBoolean("role_request_pending",false))return;
+        if(isDefault()){
+            SafetyState.prefs(this).edit().putBoolean("role_request_pending",false).apply();SafetyState.refreshNotification(this);refreshSafety();
+            error("已核验默认短信角色，但尚未删除。已选短信会保留，请再次点击“删除所选”并确认。清理后请恢复原短信应用。");return;
+        }
+        // OEM role and provider state may settle after the callback. Retry only reads, never writes.
+        if(roleAttempts++<6){ui.postDelayed(roleCheck,500);return;}
+        SafetyState.prefs(this).edit().putBoolean("role_request_pending",false).apply();SafetyState.refreshNotification(this);refreshSafety();
+        String callback=SafetyState.prefs(this).getString("role_callback","");
+        showRoleUnavailable(callback.startsWith("RESULT_OK")?"系统返回授权成功，但再次核验仍未确认一致的默认短信状态。为安全起见，尚未删除。":"当前未能确认默认短信角色，没有执行删除。取消申请、系统限制或状态读取异常都可能导致此结果。");
+    }
+    void showRoleUnavailable(String reason){
+        if(!resumed||isFinishing()||isDestroyed())return;
+        new AlertDialog.Builder(this).setTitle("请核对默认短信设置").setMessage(reason+"\n\n"+SafetyState.diagnostics(this)+"\n\n请在系统设置中选择“短信清理”作为临时默认短信应用，再返回核对。若系统不允许，不要绕过安全限制。收信/MMS 风险仍存在，清理后必须恢复原应用。")
+            .setPositiveButton("打开默认应用设置",(d,w)->{SafetyState.prefs(this).edit().putBoolean("role_request_pending",true).putString("role_callback","从系统设置返回待核对").apply();openSettings(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS);})
+            .setNeutralButton("复制诊断",(d,w)->{((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("短信角色诊断",SafetyState.diagnostics(this)));Toast.makeText(this,"已复制状态诊断，不含短信内容",Toast.LENGTH_SHORT).show();}).setNegativeButton("取消",null).show();
+    }
     boolean airplane(){return Settings.Global.getInt(getContentResolver(),Settings.Global.AIRPLANE_MODE_ON,0)==1;}
     void showAirplane(){new AlertDialog.Builder(this).setTitle("尚未开始删除").setMessage("请先开启飞行模式，再回来继续。选择会保留。飞行模式只能降低风险，不能保证收信不受影响。").setPositiveButton("打开飞行模式设置",(d,w)->openSettings(Settings.ACTION_AIRPLANE_MODE_SETTINGS)).setNegativeButton("取消",null).show();}
     void export(){if(locked()||selected.isEmpty())return;exportSnapshot=new ArrayList<>();for(Sms s:rows)if(selected.contains(s.id))exportSnapshot.add(s);startActivityForResult(new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("application/json").putExtra(Intent.EXTRA_TITLE,"sms-backup-"+System.currentTimeMillis()+".json"),30);}
     @Override public void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);
-        if(request==20){error(isDefault()?"默认角色已授予，但尚未删除。请检查已选短信，再次点击“删除所选”并确认。清理后请恢复原短信应用。":"未获得默认短信角色，没有删除任何短信。");return;}
+        if(request==20){SafetyState.prefs(this).edit().putString("role_callback",result==RESULT_OK?"RESULT_OK（系统返回授予）":"RESULT_CANCELED / "+result).putBoolean("role_request_pending",true).apply();roleAttempts=0;ui.removeCallbacks(roleCheck);if(resumed)ui.post(roleCheck);return;}
         if(request==30&&result==RESULT_OK&&data!=null&&data.getData()!=null){if(exportSnapshot==null){error("备份页面期间应用被重建，尚未导出内容。请重新选择并备份。");return;}final Uri target=data.getData();final ArrayList<Sms> snapshot=exportSnapshot;exportSnapshot=null;worker.execute(()->{String message;
             try{JSONArray entries=new JSONArray();for(Sms s:snapshot){JSONObject j=new JSONObject();j.put("id",s.id);j.put("address",s.address);j.put("body",s.body);j.put("date",s.date);j.put("type",s.type);entries.put(j);}JSONObject document=new JSONObject();document.put("format","sms-manager-backup-v1");document.put("messages",entries);try(OutputStream out=getContentResolver().openOutputStream(target)){if(out==null)throw new IOException();out.write(document.toString(2).getBytes(StandardCharsets.UTF_8));}message="已备份 "+snapshot.size()+" 条短信。JSON 可保留和查看，但本版本不支持恢复导入。请妥善保管私密内容。";}catch(Exception e){message="备份未成功确认："+e.getClass().getSimpleName()+"。请重试，暂勿删除重要短信。";}final String msg=message;runOnUiThread(()->error(msg));});}
     }
-    @Override public void onDestroy(){super.onDestroy();ui.removeCallbacks(monitor);worker.shutdown();}
+    @Override public void onDestroy(){super.onDestroy();ui.removeCallbacks(monitor);ui.removeCallbacks(roleCheck);worker.shutdown();}
 }
