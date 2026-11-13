@@ -25,6 +25,7 @@ import java.util.concurrent.*;
 
 /** Local-only SMS cleanup UI. No role grant or query ever starts deletion automatically. */
 public class MainActivity extends Activity {
+    private static final String REPOSITORY_URL="https://github.com/chadlwm/sms-manager";
     static final int INK=0xFF172B40, MUTED=0xFF60758B, BLUE=0xFF246BFE, BG=0xFFF3F6FA, RED=0xFFB73343;
     final ExecutorService worker=Executors.newSingleThreadExecutor();
     final Handler ui=new Handler(Looper.getMainLooper());
@@ -60,7 +61,7 @@ public class MainActivity extends Activity {
         root.setOnApplyWindowInsetsListener((v,insets)->{android.graphics.Insets i=insets.getInsets(WindowInsets.Type.systemBars());v.setPadding(dp(18),i.top+dp(12),dp(18),i.bottom+dp(10));return insets;});
         LinearLayout header=new LinearLayout(this);header.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout headings=column();headings.addView(text("短信清理",28,INK,true));headings.addView(text("留住重要消息，让收件箱轻一点",12,MUTED,false));header.addView(headings,new LinearLayout.LayoutParams(0,-2,1));
-        Button settings=button("安全与设置",BLUE,false,v->showSafety());header.addView(settings);spaced(root,header,12);
+        Button settings=button("安全与设置",BLUE,false,this::showSettingsMenu);settings.setMinHeight(dp(48));settings.setMinimumHeight(dp(48));settings.setContentDescription("安全与设置菜单，含默认短信应用和关于项目");settings.setTooltipText("安全设置与关于项目");header.addView(settings);spaced(root,header,12);
         LinearLayout filters=card();
         keyword=input("搜索正文，例如：优惠、验证码");spaced(filters,keyword,8);
         sender=input("发件号码或标识，例如：106…");spaced(filters,sender,5);
@@ -100,6 +101,49 @@ public class MainActivity extends Activity {
     boolean isDefault(){return SafetyState.isDefault(this);}
     void hideKeyboard(){((InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(keyword.getWindowToken(),0);keyword.clearFocus();sender.clearFocus();}
     void showSms(Sms s){new AlertDialog.Builder(this).setTitle(s.address==null?"短信详情":s.address).setMessage(s.body).setPositiveButton("关闭",null).setNeutralButton("查此发件人",(d,w)->{if(locked())return;sender.setText(s.address);keyword.setText("");exact.setChecked(true);load(true);}).show();}
+    void showSettingsMenu(View anchor){
+        PopupMenu menu=new PopupMenu(this,anchor);
+        menu.getMenu().add(0,1,0,"安全与默认短信应用");
+        menu.getMenu().add(0,2,1,"关于 · GitHub 仓库");
+        menu.setOnMenuItemClickListener(item->{if(item.getItemId()==1)showSafety();else if(item.getItemId()==2)showAbout();return true;});
+        menu.show();
+    }
+    void showAbout(){
+        String version="";
+        try {version=" v"+getPackageManager().getPackageInfo(getPackageName(),0).versionName;}catch(PackageManager.NameNotFoundException ignored){}
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("关于短信清理"+version)
+            .setMessage("查看源代码、更新日志与使用说明：\n\n"+REPOSITORY_URL+"\n\n仅在你点击后使用外部浏览器打开，不发送短信内容、筛选条件或操作记录。网页由 GitHub 提供；请勿在公开 Issue 中上传私人短信或备份。")
+            .setPositiveButton("浏览器打开",(d,w)->openRepository())
+            .setNeutralButton("复制链接",(d,w)->copyRepositoryLink())
+            .setNegativeButton("关闭",null).create();
+        dialog.show();TextView message=dialog.findViewById(android.R.id.message);if(message!=null)message.setTextIsSelectable(true);
+    }
+    void copyRepositoryLink(){
+        ((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("短信清理 GitHub 仓库",REPOSITORY_URL));
+        Toast.makeText(this,"已复制 GitHub 仓库链接",Toast.LENGTH_SHORT).show();
+    }
+    void openRepository(){
+        if(CleanupTask.isRunning()){error("清理正在进行中，请等待完成或停止后续删除，再打开仓库。已删除的短信不能撤销。");return;}
+        if(SafetyState.needsRecovery(this)){
+            new AlertDialog.Builder(this).setTitle("先留意默认短信应用")
+                .setMessage("打开浏览器不会恢复原默认短信应用。当前收信仍可能受到影响，请尽快恢复原应用。")
+                .setPositiveButton("继续打开",(d,w)->launchRepositoryBrowser())
+                .setNeutralButton("恢复设置",(d,w)->openSettings(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+                .setNegativeButton("取消",null).show();return;
+        }
+        launchRepositoryBrowser();
+    }
+    void launchRepositoryBrowser(){
+        // Fixed HTTPS destination only. Browser selector avoids routing this link through our app or a WebView.
+        Intent intent=new Intent(Intent.ACTION_VIEW,Uri.parse(REPOSITORY_URL));
+        intent.addCategory(Intent.CATEGORY_BROWSABLE);
+        Intent browser=new Intent(Intent.ACTION_MAIN);browser.addCategory(Intent.CATEGORY_APP_BROWSER);intent.setSelector(browser);
+        try {startActivity(intent);}catch(ActivityNotFoundException|SecurityException e){
+            new AlertDialog.Builder(this).setTitle("无法打开浏览器")
+                .setMessage("未找到可用浏览器，或系统阻止了打开。可以复制仓库链接，在你选择的浏览器中粘贴访问。短信和选择状态未被修改。")
+                .setPositiveButton("复制链接",(d,w)->copyRepositoryLink()).setNegativeButton("关闭",null).show();
+        }
+    }
     void showSafety(){String event=SafetyState.prefs(this).getString("last_event","");new AlertDialog.Builder(this).setTitle("安全与默认短信应用").setMessage(SafetyState.guidance(this)+"\n\n状态诊断：\n"+SafetyState.diagnostics(this)+"\n\n建议先备份，开启飞行模式后临时授权清理。清理完立即恢复原短信应用，再关闭飞行模式。飞行模式也不能保证收信不受影响。\n\n本工具不支持 MMS、RCS、发送和快捷回复。"+(event.isEmpty()?"":"\n\n接收异常："+event)).setPositiveButton("打开默认应用设置",(d,w)->openSettings(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)).setNeutralButton("本应用权限",(d,w)->startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:"+getPackageName())))).setNegativeButton("关闭",null).show();}
     void openSettings(String action){try{startActivity(new Intent(action));}catch(ActivityNotFoundException e){error("未找到对应设置页面，请手动进入系统设置 → 应用 → 默认应用/权限。");}}
     @Override public void onResume(){super.onResume();resumed=true;if(keyword!=null){SafetyState.refreshNotification(this);refreshSafety();load(false);ui.removeCallbacks(monitor);ui.post(monitor);

@@ -33,7 +33,7 @@ class PublicWorkflowTests(unittest.TestCase):
         self.assertGreater(len(uses),0)
         for action in uses:self.assertRegex(action,r'@[0-9a-f]{40}$')
     def test_public_restart_keeps_monotonic_android_version(self):
-        self.assertIn("versionCode 5; versionName '0.1.0'",(ROOT/'app/build.gradle').read_text())
-        self.assertIn('## [0.1.0]',(ROOT/'CHANGELOG.md').read_text())
+        self.assertIn("versionCode 6; versionName '0.1.1'",(ROOT/'app/build.gradle').read_text())
+        self.assertIn('## [0.1.1]',(ROOT/'CHANGELOG.md').read_text())
 
 if __name__=='__main__':unittest.main()

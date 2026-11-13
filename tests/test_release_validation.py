@@ -9,12 +9,12 @@ spec=importlib.util.spec_from_file_location('release_validation',ROOT/'scripts/v
 v=importlib.util.module_from_spec(spec);spec.loader.exec_module(v)
 CERT='ab'*32
 REPORT='Verifies\nSigner #1 certificate SHA-256 digest: '+CERT+'\n'
-BADGING="package: name='com.chad.smsmanager' versionCode='5' versionName='0.1.0' platformBuildVersionName='15'\n"
+BADGING="package: name='com.chad.smsmanager' versionCode='6' versionName='0.1.1' platformBuildVersionName='15'\n"
 
 class ReleaseValidationTests(unittest.TestCase):
     def test_valid_certificate_package_and_tag(self):
-        data=v.validate(REPORT,BADGING,CERT,'v0.1.0')
-        self.assertEqual(data['versionCode'],5)
+        data=v.validate(REPORT,BADGING,CERT,'v0.1.1')
+        self.assertEqual(data['versionCode'],6)
         self.assertEqual(data['signingCertificateSha256'],CERT)
     def test_normalizes_fingerprint(self):
         self.assertEqual(v.normalize_fingerprint(':'.join(['AB']*32)),CERT)
@@ -29,9 +29,9 @@ class ReleaseValidationTests(unittest.TestCase):
     def test_wrong_package_fails(self):
         with self.assertRaises(ValueError):v.validate(REPORT,BADGING.replace('com.chad.smsmanager','other.package'),CERT)
     def test_old_version_code_fails(self):
-        with self.assertRaises(ValueError):v.validate(REPORT,BADGING.replace("versionCode='5'","versionCode='4'"),CERT)
+        with self.assertRaises(ValueError):v.validate(REPORT,BADGING.replace("versionCode='6'","versionCode='5'"),CERT)
     def test_filename_injection_fails(self):
-        with self.assertRaises(ValueError):v.validate(REPORT,BADGING.replace("versionName='0.1.0'","versionName='../oops'"),CERT)
+        with self.assertRaises(ValueError):v.validate(REPORT,BADGING.replace("versionName='0.1.1'","versionName='../oops'"),CERT)
     def test_short_fingerprint_fails(self):
         with self.assertRaises(ValueError):v.normalize_fingerprint('abcdef')
     def test_missing_config_fails_without_secret_values(self):
