@@ -1,5 +1,7 @@
 # 短信清理 · Android
 
+当前目标公开版本：**v0.1.0 / versionCode 5**。版本名称按所有者要求重新起始，代码包含此前 0.2.2 的改进，并非回退；Android versionCode 继续递增。详见 [CHANGELOG.md](CHANGELOG.md) 与 [SECURITY.md](SECURITY.md)。
+
 为 OPPO Reno10 Pro 5G 的批量短信整理需求制作的**临时清理工具**。中文界面，本地处理，无联网权限、广告或分析 SDK。Android 11+。
 
 ## 功能
@@ -39,13 +41,13 @@ gradle lintDebug assembleDebug assembleRelease
 
 此仓库使用系统 Gradle，未内置 wrapper。CI 固定 Gradle 版本并安装 SDK。
 
-## GitHub 自动构建与正式签名发布（v0.2.2 起）
+## GitHub 自动构建与正式签名发布
 
 普通 main/tag 推送、PR 和默认手动运行只执行测试、lint 和 debug 构建，不读取正式签名凭据。测试 APK 在 `debug-test-only-not-for-upgrades` Artifact 中，**不是稳定升级包，不附加到 GitHub Release**。
 
-发布 GitHub Release 或手动运行并勾选 `signed_release`，才会启动独立正式签名任务。它用下面配置的**同一把长期密钥**签名、使用 `apksigner verify` 校验、比对预先固定的签名证书 SHA-256、检查应用 ID/版本与 tag，最后生成：
+发布 GitHub Release 或在 main 上手动运行并勾选 `signed_release`，才会启动独立正式签名任务。它用下面配置的**同一把长期密钥**签名、使用 `apksigner verify` 校验、比对预先固定的签名证书 SHA-256、检查应用 ID/版本与 tag，最后生成：
 
-- `sms-manager-v0.2.2.apk`（文件名跟随版本号）：经过签名核验的可安装包。
+- `sms-manager-v0.1.0.apk`（文件名跟随版本号）：经过签名核验的可安装包。
 - `SHA256SUMS.txt`：APK 文件的 SHA-256。
 - `release-metadata.json`：版本、源提交、APK SHA-256 与签名证书 SHA-256。
 
@@ -69,8 +71,8 @@ Release 发布后只附加上述正式产物，**不再上传未签名 release �
 
 ### 版本与发布步骤
 
-1. 在 `app/build.gradle` 更新 `versionName`，并让 `versionCode` **严格大于所有已分发正式包**。当前为 `0.2.2` / `4`。以后每次版本升级都要递增，工作流不代替你追踪历史已分发包。
-2. 将已审核代码提交到 main，发布同名 tag `v0.2.2` 的 GitHub Release。tag 与 APK versionName 不符会拒绝发布。
+1. 在 `app/build.gradle` 更新 `versionName`，并让 `versionCode` **严格大于所有已分发正式包**。当前为 `0.1.0` / `5`。以后每次版本升级都要递增，工作流不代替你追踪历史已分发包。
+2. 将已审核代码提交到 main，发布同名 tag `v0.1.0` 的 GitHub Release。tag 与 APK versionName 不符会拒绝发布。
 3. 检查 `signed-release` 和 `publish` 都成功，再下载正式 APK。只有 debug 检查成功不代表已经完成签名。
 4. 后续使用同一应用 ID、同一签名密钥、递增 versionCode 发布，才能正常覆盖升级。工作流不会切换或轮换密钥。
 
@@ -139,3 +141,12 @@ Android 不允许用不同签名证书直接覆盖同一应用 ID。仅重命名
 缺少 visibility 声明及立即依赖单一查询结果是确认的代码问题，但**不能据此确定 OPPO 用户本机角色申请失败的唯一原因**。仍需更新后核对实际系统诊断。此前收信/MMS 限制不变。
 
 官方依据：[Telephony.Sms.getDefaultSmsPackage](https://developer.android.com/reference/android/provider/Telephony.Sms#getDefaultSmsPackage(android.content.Context))、[RoleManager](https://developer.android.com/reference/android/app/role/RoleManager)。
+
+
+### 公开仓库的发布边界
+
+- 公共 PR/fork 只执行不含正式签名 Secrets 的测试任务。没有 `pull_request_target` 特权执行路径。
+- 签名任务限制为 `chadlwm/sms-manager` 本仓库，手动触发只允许 main；Release 对应提交必须已进入 main 历史，才能进入含凭据步骤。
+- 签名不使用 Gradle 缓存，测试作业只读取缓存；checkout 不持久保存 Git 凭据；第三方 Actions 固定为官方仓库标签核对的提交 SHA。
+- 这些控制不替代维护者权限和 main 代码审查。仓库所有者应自行评估分支保护、签名 Environment 人工批准和 Actions 设置；本次仅修改仓库代码，不自动配置安全权限。
+- 公开之前仍须审查整个 Git 历史与旧 Release 附件；扫描当前目录不能证明历史没有敏感内容。

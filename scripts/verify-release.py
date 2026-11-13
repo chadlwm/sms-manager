@@ -21,7 +21,7 @@ def validate(verification, badging, expected, tag=''):
     if not match:
         raise ValueError('Unable to read APK version metadata.')
     package,code,version=match.groups()
-    if package!='com.chad.smsmanager' or int(code)<4:
+    if package!='com.chad.smsmanager' or int(code)<5:
         raise ValueError('Unexpected application ID or versionCode; refusing to publish.')
     if not re.fullmatch(r'\d+\.\d+\.\d+(?:-[A-Za-z0-9.]+)?',version):
         raise ValueError('Unexpected versionName format.')

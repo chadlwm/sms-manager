@@ -12,3 +12,10 @@ release-output/
 *.key
 __pycache__/
 *.pyc
+.env
+.env.*
+!.env.example
+*.b64
+signing.properties
+keystore.properties
+sms-backup-*.json
