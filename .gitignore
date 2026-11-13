@@ -4,3 +4,11 @@ local.properties
 *.jks
 *.keystore
 .idea/
+
+release-output/
+*.p12
+*.pfx
+*.pem
+*.key
+__pycache__/
+*.pyc

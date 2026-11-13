@@ -7,10 +7,16 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      signed_release:
+        description: 'Build a signed installable release using the configured stable key'
+        type: boolean
+        required: false
+        default: false
 permissions:
   contents: read
 jobs:
-  build:
+  test-build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,32 +32,75 @@ jobs:
           gradle-version: '8.10.2'
       - name: Install Android SDK
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
-      - name: Pure Java filter tests
-        run: bash scripts/test-filters.sh
-      - name: Build and lint
-        run: gradle --no-daemon lintDebug assembleDebug assembleRelease
+      - name: Unit and signing pipeline tests (no real credentials)
+        run: |
+          bash scripts/test-filters.sh
+          python3 -m unittest discover -s tests -p 'test_*.py'
+          bash -n scripts/sign-release.sh scripts/check-signing-config.sh
+      - name: Lint and build test APK
+        run: gradle --no-daemon lintDebug assembleDebug
       - uses: actions/upload-artifact@v4
         with:
-          name: sms-manager-apks
+          name: debug-test-only-not-for-upgrades
           path: |
             app/build/outputs/apk/debug/*.apk
-            app/build/outputs/apk/release/*.apk
             app/build/reports/lint-results-debug.html
-  release-assets:
+  signed-release:
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.signed_release)
+    needs: test-build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check signing configuration (never print values)
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_SIGNING_CERT_SHA256: ${{ vars.ANDROID_SIGNING_CERT_SHA256 }}
+        run: bash scripts/check-signing-config.sh
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Install Android SDK
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - name: Build release input
+        run: gradle --no-daemon lintRelease assembleRelease
+      - name: Sign, verify pinned certificate, and checksum
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_SIGNING_CERT_SHA256: ${{ vars.ANDROID_SIGNING_CERT_SHA256 }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: bash scripts/sign-release.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signed-installable-release
+          if-no-files-found: error
+          path: release-output/*
+  publish:
     if: github.event_name == 'release'
-    needs: build
+    needs: signed-release
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: sms-manager-apks
+          name: signed-installable-release
           path: dist
-      - name: Attach APKs to release
+      - name: Publish verified signed assets only
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ github.event.release.tag_name }}
-        run: |
-          find dist -name '*.apk' -exec gh release upload "$TAG" {} --clobber \;
+        run: gh release upload "$TAG" dist/* --clobber

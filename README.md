@@ -39,13 +39,50 @@ gradle lintDebug assembleDebug assembleRelease
 
 此仓库使用系统 Gradle，未内置 wrapper。CI 固定 Gradle 版本并安装 SDK。
 
-## GitHub 自动构建与发布
+## GitHub 自动构建与正式签名发布（v0.2.2 起）
 
-`.github/workflows/android.yml` 在 main 推送、PR、`v*` 标签、手动触发和 Release 发布时构建，执行过滤测试和 Android lint。Actions Artifacts 提供 APK 与 lint 报告；发布 GitHub Release 后，会自动把 APK 附加到该 Release。
+普通 main/tag 推送、PR 和默认手动运行只执行测试、lint 和 debug 构建，不读取正式签名凭据。测试 APK 在 `debug-test-only-not-for-upgrades` Artifact 中，**不是稳定升级包，不附加到 GitHub Release**。
 
-- `app-debug.apk`：可安装测试包。CI 每次可能生成不同 debug 签名，不能保证覆盖升级；卸载会清空应用自身状态，不会删除系统短信。
-- `app-release-unsigned.apk`：未签名正式包，**不能直接安装**，用于自行正式签名。
-- 没有把私钥放进仓库，也没有伪称正式签名发布。长期使用应配置持久签名密钥后再发布正式包。不要将明文密钥提交 GitHub。
+发布 GitHub Release 或手动运行并勾选 `signed_release`，才会启动独立正式签名任务。它用下面配置的**同一把长期密钥**签名、使用 `apksigner verify` 校验、比对预先固定的签名证书 SHA-256、检查应用 ID/版本与 tag，最后生成：
+
+- `sms-manager-v0.2.2.apk`（文件名跟随版本号）：经过签名核验的可安装包。
+- `SHA256SUMS.txt`：APK 文件的 SHA-256。
+- `release-metadata.json`：版本、源提交、APK SHA-256 与签名证书 SHA-256。
+
+Release 发布后只附加上述正式产物，**不再上传未签名 release 或 debug APK**。缺配置或校验失败会让正式发布任务明确失败，且不上传新的安装包；测试构建仍可正常通过。以前发布的未签名/debug 附件不会被工作流自动删除，请不要继续用那些附件安装。
+
+### 需要仓库所有者先配置
+
+本次代码变更**没有生成、上传、保存或配置任何密钥/密码**。需要你决定使用哪个长期 Android 签名密钥，并通过 GitHub 仓库 Settings → Secrets and variables → Actions 配置：
+
+| 类型 | 名称 | 内容 |
+| --- | --- | --- |
+| Secret | `ANDROID_KEYSTORE_BASE64` | 包含稳定签名私钥的 keystore 的 Base64 编码（编码不是加密） |
+| Secret | `ANDROID_KEYSTORE_PASSWORD` | keystore 密码 |
+| Secret | `ANDROID_KEY_ALIAS` | keystore 内签名密钥的 alias |
+| Secret | `ANDROID_KEY_PASSWORD` | 该密钥密码；若与 store 密码相同仍需填入 |
+| Variable | `ANDROID_SIGNING_CERT_SHA256` | 对应签名证书的 SHA-256 指纹，64 个十六进制字符，可含冒号；**不是 APK 文件哈希** |
+
+请不要把凭据发到聊天、README、Issue 或提交进 Git。保留安全的离线密钥备份；遗失私钥就无法正常更新同签名应用。证书指纹可用本机 `keytool -list -v -keystore <keystore> -alias <alias>` 查看，密码由命令交互输入，不放在命令行或记录中。若没有已有密钥，需先自行创建并妥善保管，或另行明确授权协助处理；此工作流不会替你生成。
+
+密钥只在签名步骤的 runner 临时目录解码，限制文件访问并在退出时清理，不纳入 checkout、缓存或 artifact。密码通过 apksigner 的环境变量入口传递。对固定证书进行比对可以防止误配成另一把密钥，但不替代仓库与 Actions 的权限保护。仅在可信、审核过的提交运行正式签名；建议限制能修改工作流、推送 main 和发布 Release 的人。不要在不可信分支运行带凭据的手动签名。
+
+### 版本与发布步骤
+
+1. 在 `app/build.gradle` 更新 `versionName`，并让 `versionCode` **严格大于所有已分发正式包**。当前为 `0.2.2` / `4`。以后每次版本升级都要递增，工作流不代替你追踪历史已分发包。
+2. 将已审核代码提交到 main，发布同名 tag `v0.2.2` 的 GitHub Release。tag 与 APK versionName 不符会拒绝发布。
+3. 检查 `signed-release` 和 `publish` 都成功，再下载正式 APK。只有 debug 检查成功不代表已经完成签名。
+4. 后续使用同一应用 ID、同一签名密钥、递增 versionCode 发布，才能正常覆盖升级。工作流不会切换或轮换密钥。
+
+### 从旧 debug/其他签名包迁移
+
+Android 不允许用不同签名证书直接覆盖同一应用 ID。仅重命名 APK、换 versionCode 或反复安装不能解决；不要绕过系统校验。
+
+- 若仍拥有旧安装包对应的签名私钥，可评估继续使用该密钥。但临时 CI debug 密钥通常未保留，不应假定能找回。
+- 若签名不一致且无法取得原密钥，通常需要先卸载旧应用，再安装正式包。**先恢复系统原默认短信应用，再核对备份，最后才卸载。**
+- 卸载会清除本应用的筛选状态、操作日志、权限和内部数据。当前应用没有完整内部数据恢复功能；需要的日志/设置请先记录。通过系统文件选择器导出的 JSON 请确认位于独立文件夹且可读取；JSON 不是一键恢复备份。
+- 系统短信由 Android/ColorOS 的系统短信数据库管理，通常不会随本清理工具卸载而删除；**未验证你的具体设备和卸载选项，不能作绝对保证**。重要短信请先通过原短信应用或可信系统备份方案备份，并验证备份可用，再考虑卸载。不要在未核实备份时贸然清除数据。
+- 安装正式包后重新授予权限，并先用少量不重要短信验证。没有在 OPPO 真机验证过此迁移过程。
 
 这是侧载原型，不代表符合 Google Play 短信权限上架政策。
 
