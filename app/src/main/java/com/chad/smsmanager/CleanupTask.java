@@ -28,14 +28,17 @@ final class CleanupTask {
         return !cancelled.get() && SafetyState.isDefault(c) && Settings.Global.getInt(c.getContentResolver(), Settings.Global.AIRPLANE_MODE_ON, 0) == 1;
     }
     static boolean start(Context context, ArrayList<Long> input) {
-        if (input.isEmpty() || !running.compareAndSet(false, true)) return false;
+        long[] ids=new long[input.size()];for(int i=0;i<ids.length;i++)ids[i]=input.get(i);return start(context,ids);
+    }
+    static boolean start(Context context, long[] input) {
+        if (input.length==0 || !running.compareAndSet(false, true)) return false;
         cancelled.set(false);
         Context c = context.getApplicationContext();
-        final ArrayList<Long> ids = new ArrayList<>(new LinkedHashSet<>(input));
+        final long[] ids = SmsSelection.sortedUnique(input);
         SharedPreferences p = SafetyState.prefs(c);
         long operation = Math.max(System.currentTimeMillis(), p.getLong("delete_operation_id", 0) + 1);
         if (!p.edit().putLong("delete_operation_id", operation).putString("delete_state", "running")
-            .putString("delete_outcome", "running").putInt("delete_total", ids.size()).putInt("delete_processed", 0)
+            .putString("delete_outcome", "running").putInt("delete_total", ids.length).putInt("delete_processed", 0)
             .putInt("delete_count", 0).putInt("delete_missing", 0).putInt("delete_failed", 0).putInt("delete_unknown", 0)
             .putLong("delete_pending", -1).putString("delete_result", "").commit()) { running.set(false); return false; }
         new Thread(() -> {
